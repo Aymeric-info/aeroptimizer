@@ -1,0 +1,9 @@
+# 3D cantilever for validating the 3D static brick (axes x, y, z; z = build axis).
+case: cantilever
+grid: {shape: [32, 16, 16], h: [1.0, 1.0, 1.0]}
+material: {type: isotropic, E: 1.0, nu: 0.3}
+density: {R: 1.5, p: [1.0, 3.0], beta: [0.0, 0.0]}
+loads: {force_N: 1.0}
+objective: {volume_fraction: 0.12, w_c: 1.0, w_a: 0.0}
+optim: {method: oc, max_iter: 100, tol: 1.0e-2}
+runtime: {device: cpu, dtype: float64, seed: 0}

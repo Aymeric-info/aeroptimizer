@@ -1,0 +1,14 @@
+# Validation benchmark: MBB beam (half), dimensionless numbers treated as SI (reduced units).
+# Must reproduce top88 (compliance within +-2 %, C-OPT-02). No flow, no overhang, no projection.
+case: mbb
+grid: {shape: [60, 20], h: [1.0, 1.0]}          # (nx, nz) elements, h in m
+material: {type: isotropic, E: 1.0, nu: 0.3}
+physics: {plane: stress, thickness: 1.0}
+density:
+  R: 1.5                                         # filter radius [m] (= 1.5 h)
+  p: [3.0, 3.0]                                  # no p-continuation
+  beta: [0.0, 0.0]                               # 0 = projection bypassed (identity), as in top88
+loads: {force_N: 1.0}
+objective: {volume_fraction: 0.5, w_c: 1.0, w_a: 0.0}
+optim: {method: oc, max_iter: 200, tol: 1.0e-2}
+runtime: {device: cpu, dtype: float64, seed: 0}

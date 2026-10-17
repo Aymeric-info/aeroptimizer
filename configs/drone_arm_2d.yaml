@@ -1,0 +1,30 @@
+# Drone arm, side view (x, z): z = vertical = build axis = downwash axis. Rotor above the tip.
+# All values marked TODO are PLACEHOLDERS that must be calibrated (FORMALISM §6, C-CFG-03).
+case: drone_arm
+grid: {shape: [160, 60], h: [5.0e-4, 5.0e-4]}   # 80 mm x 30 mm incl. >= n_pad fluid cells at inlet
+material:                                       # TODO: calibrer (essais de traction XY et Z)
+  type: transversely_isotropic
+  Ep: 2.4e9
+  Ez: 1.8e9
+  nup: 0.35
+  nupz: 0.35
+  Gz: 0.7e9
+physics: {plane: stress, thickness: 8.0e-3}     # arm width along y [m]
+density:
+  R: 1.5e-3                                     # >= 3 h  (min feature ~ nozzle width x n)
+  p: [1.0, 3.0]
+  beta: [1.0, 16.0]
+  overhang: {theta_deg: 45.0, beta_s: [10.0, 80.0], eps: 1.0e-4}
+flow:
+  model: potential
+  k_w: 1.4                                      # TODO: calibrer (slipstream contraction, 1..2)
+  c_b: 0.3                                      # TODO: calibrer (base-pressure coefficient)
+  rho_air: 1.225
+  U_inf: 0.0
+  n_pad: 6
+  kappa_min: 1.0e-6
+  q: 3.0
+loads: {force_N: 8.0, load_factor: 1.0}         # motor thrust [N] (hover)
+objective: {volume_fraction: 0.4, w_c: 1.0, w_a: 0.5}
+optim: {method: mma, max_iter: 400, tol: 1.0e-3}
+runtime: {device: cpu, dtype: float64, seed: 0}
