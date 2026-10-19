@@ -10,3 +10,5 @@ runs/
 *.vti
 *.vtu
 .DS_Store
+!research/results/*.npy
+research/results_rapide/

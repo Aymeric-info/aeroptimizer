@@ -1,10 +1,28 @@
 # aeroptimizer
 
-Solveur d'optimisation topologique **différentiable** (PyTorch) pour le bras et le châssis central
-d'un drone imprimé en FDM : couplage compliance + téléchargement aérodynamique (écoulement potentiel),
-loi orthotrope pour l'anisotropie inter-couches, filtre de surplomb auto-supportant.
+Solveur d'optimisation topologique **différentiable** (PyTorch) pour le bras d'un drone imprimé en FDM :
+compromis **rigidité / traînée dans le souffle du rotor**, filtre de surplomb auto-supportant.
 
-**État : squelette (phase 0).** Aucun solveur n'est encore implémenté ; les contrats sont des tests `skip`.
+**État : v0 de bout en bout.** La pipeline complète tourne et est présentée dans
+[research/v0_pipeline.ipynb](research/v0_pipeline.ipynb) (résultats 2D et 3D, validation de chaque brique) :
+
+* **2D, section du bras** (`arm.SectionProblem`) : une densité dans le plan $(y, z)$ de la section ;
+  structure = rigidités de poutre de Timoshenko (flexion, cisaillement, torsion par EF de gauchissement,
+  `section.py`) ; fluide = Navier–Stokes stationnaire avec pénalisation de Brinkman (`flow/brinkman.py`),
+  traînée = intégrale de la force de Brinkman ; couplage par ε-contrainte ou somme pondérée ; MMA.
+* **3D, bras complet** (`arm.Arm3DProblem`) : EF 3D, trois cas de charge (une factorisation),
+  traînée par théorie des tranches sous le disque du rotor.
+
+FORMALISM/CONTRACTS/ARCHITECTURE décrivent la conception initiale (écoulement potentiel) ; la v0 s'en écarte
+sur le modèle fluide (d'Alembert : le potentiel ne donne aucune traînée) et sur le plan 2D (section plutôt que
+vue de côté). Les leçons de `notebooks/lessons` restent la base pédagogique des briques communes.
+
+```bash
+pip install -e ".[dev]"
+pytest                                          # ~15 s
+python research/build_notebook.py               # régénère le notebook depuis son script
+jupyter nbconvert --to notebook --execute --inplace research/v0_pipeline.ipynb --ExecutePreprocessor.timeout=-1
+```
 
 ## Documents (à lire dans cet ordre)
 
@@ -19,7 +37,7 @@ loi orthotrope pour l'anisotropie inter-couches, filtre de surplomb auto-support
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                                   # tout est skip tant que les phases ne sont pas atteintes
+pytest
 python scripts/contracts_index.py --check   # chaque contrat de CONTRACTS.md a son test
 ```
 
@@ -27,6 +45,6 @@ Plateforme de référence : **CPU, float64** (MPS ne supporte pas float64, voir 
 
 ## Conventions à retenir
 
-* Axes : 2D `(x, z)`, 3D `(x, y, z)` ; **`z` = dernier axe = direction de fabrication = verticale = écoulement**.
+* Axes : 2D `(x, z)` (ou `(y, z)` pour la section du bras), 3D `(x, y, z)` ; **`z` = dernier axe = direction de fabrication = verticale = écoulement**.
 * SI aux interfaces, `float64`, ordre C (dernier axe le plus rapide).
-* Les gradients viennent d'Autograd ; seuls les solves linéaires ont un backward manuel (adjoint).
+* Les gradients viennent d'Autograd ; seuls les solveurs (`solve_spd`, Newton de Navier–Stokes) ont un backward manuel (adjoint).

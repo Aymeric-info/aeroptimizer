@@ -106,6 +106,10 @@ class StructuredFEOperator:
         The adjoint's only contraction.
         """
         free = self.free_mask.to(u.dtype)
+        if u.ndim == 2:  # k load cases as columns: sum of the k contractions
+            free = free[:, None]
+            le, ue = (lam * free)[self.edof], (u * free)[self.edof]  # (Ne, m, k)
+            return (torch.einsum("emk,mn->enk", le, self.Ke0) * ue).sum((-1, -2))
         le, ue = (lam * free)[self.edof], (u * free)[self.edof]
         return ((le @ self.Ke0) * ue).sum(-1)
 
