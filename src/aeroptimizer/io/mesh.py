@@ -7,6 +7,7 @@ NumPy only, no mandatory dependency. Fields are element-centred: sample point (i
 * `marching_tetrahedra`: 3D surface. Each cube is cut into 6 tetrahedra along the same diagonal, so
   neighbouring cubes agree on every face and the surface is closed by construction; the 256-case
   table of marching cubes (and its ambiguous cases) is not needed.
+* `smooth_taubin`: volume-preserving smoothing of a triangle mesh.
 * `mesh_report`, `write_stl`, `read_stl`, `thin_fraction`.
 """
 
@@ -261,6 +262,40 @@ def face_normals(V: np.ndarray, F: np.ndarray) -> np.ndarray:
     n = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
     norm = np.linalg.norm(n, axis=1, keepdims=True)
     return n / np.where(norm == 0, 1.0, norm)
+
+
+# ------------------------------------------------------------------------------------ smoothing
+
+
+def smooth_taubin(
+    V: np.ndarray, F: np.ndarray, *, iterations: int = 20, lam: float = 0.5, mu: float = -0.53,
+    box: tuple | None = None,
+) -> np.ndarray:
+    """Taubin smoothing (Taubin 1995): a Laplacian step (lam > 0) then an inflating one (mu < 0), repeated.
+
+    Plain Laplacian smoothing shrinks the part; the alternating pair removes the staircase of the
+    grid while keeping the volume (mu is slightly larger in modulus than lam, 1/lam + 1/mu ~ 0.1).
+    `box = (lo, hi)` pins the vertices lying on a face of that box, so flat ends and mounting faces
+    stay flat and in place, and the others are kept inside it (use +-inf on an axis to leave it free). Topology is unchanged.
+    """
+    from scipy import sparse
+
+    V = np.array(V, dtype=float)
+    n = len(V)
+    e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    A = sparse.coo_matrix((np.ones(len(e)), (e[:, 0], e[:, 1])), shape=(n, n)).tocsr()
+    A = ((A + A.T) > 0).astype(float)  # undirected, each neighbour counted once
+    mean = sparse.diags(1.0 / np.maximum(np.asarray(A.sum(1)).ravel(), 1.0)) @ A
+    free = np.ones(n, bool)
+    if box is not None:
+        lo, hi = (np.asarray(b, dtype=float) for b in box)
+        free = ~((np.abs(V - lo) < 1e-6) | (np.abs(V - hi) < 1e-6)).any(1)
+    for _ in range(iterations):
+        for k in (lam, mu):
+            V[free] += k * (mean @ V - V)[free]
+            if box is not None:
+                V = np.clip(V, lo, hi)  # the inflating step must not push the part out of its box
+    return V
 
 
 # ----------------------------------------------------------------------------------------- STL

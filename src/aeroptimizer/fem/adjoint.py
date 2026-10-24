@@ -50,6 +50,37 @@ def _free(op: StructuredFEOperator, v: torch.Tensor) -> torch.Tensor:
     return free if v.ndim == 1 else free[:, None]
 
 
+class Compliances(torch.autograd.Function):
+    """C_k = f_k^T u_k for k load cases (columns of f), with K~ u = P f. Self-adjoint: the adjoint state of C_k
+    is u_k itself, so the backward needs NO solve: dC_k/dw_e = -u_k,e^T Ke0 u_k,e. Halves the solves of
+    `solve_spd` followed by f * u, which pays an adjoint solve per backward. f must not depend on w.
+    """
+
+    @staticmethod
+    def forward(ctx, w, f, op: StructuredFEOperator, solver: LinearSolver):  # type: ignore[override]
+        handle = solver.prepare(op, w.detach())
+        Pf = f.detach() * _free(op, f)
+        u = handle.solve(Pf)
+        ctx.op = op
+        ctx.save_for_backward(u)
+        ctx.mark_non_differentiable(u)
+        return (Pf * u).sum(dim=0), u
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, g_C, g_u):  # type: ignore[override]
+        (u,) = ctx.saved_tensors
+        grad_w = -ctx.op.dK_contract(u * g_C[None, :], u) if ctx.needs_input_grad[0] else None
+        return grad_w, None, None, None
+
+
+def compliances(
+    op: StructuredFEOperator, w: torch.Tensor, f: torch.Tensor, solver: LinearSolver
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """(C, u): compliances (k,) of the load cases f (N, k), differentiable in w only, and the displacements."""
+    return Compliances.apply(w, f, op, solver)
+
+
 def solve_spd(
     op: StructuredFEOperator, w: torch.Tensor, f: torch.Tensor, solver: LinearSolver
 ) -> torch.Tensor:

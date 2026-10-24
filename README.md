@@ -4,7 +4,7 @@ Solveur d'optimisation topologique **différentiable** (PyTorch) pour le bras d'
 compromis **rigidité / traînée dans le souffle du rotor**, filtre de surplomb auto-supportant.
 
 **État : v0 de bout en bout.** La pipeline complète tourne et est présentée dans
-[research/v0_pipeline.ipynb](research/v0_pipeline.ipynb) (résultats 2D et 3D, validation de chaque brique) :
+[notebooks/research/bras/v0_pipeline.ipynb](notebooks/research/bras/v0_pipeline.ipynb) (résultats 2D et 3D, validation de chaque brique) :
 
 * **2D, section du bras** (`arm.SectionProblem`) : une densité dans le plan $(y, z)$ de la section ;
   structure = rigidités de poutre de Timoshenko (flexion, cisaillement, torsion par EF de gauchissement,
@@ -20,8 +20,17 @@ vue de côté). Les leçons de `notebooks/lessons` restent la base pédagogique 
 ```bash
 pip install -e ".[dev]"
 pytest                                          # ~15 s
-python research/build_notebook.py               # régénère le notebook depuis son script
-jupyter nbconvert --to notebook --execute --inplace research/v0_pipeline.ipynb --ExecutePreprocessor.timeout=-1
+jupyter nbconvert --to notebook --execute --inplace notebooks/research/bras/v0_pipeline.ipynb --ExecutePreprocessor.timeout=-1
+```
+
+**Châssis (sans les bras), v0** : [notebooks/research/chassis/v0_chassis_sans_bras.ipynb](notebooks/research/chassis/v0_chassis_sans_bras.ipynb),
+expérience A/B du filtre de surplomb décrite dans [CDC_CHASSIS.md](notebooks/research/chassis/CDC_CHASSIS.md)
+(`frame.FrameProblem`, `printability.py`, solveur `fem.solvers.AMGCG` qui demande `pip install pyamg`) :
+
+```bash
+python notebooks/research/chassis/build_notebook.py   # régénère le notebook depuis son script
+python notebooks/research/chassis/runs.py A B C       # les 3 optimisations, en parallèle, mises en cache (~45 min)
+jupyter nbconvert --to notebook --execute --inplace notebooks/research/chassis/v0_chassis_sans_bras.ipynb
 ```
 
 ## Documents (à lire dans cet ordre)

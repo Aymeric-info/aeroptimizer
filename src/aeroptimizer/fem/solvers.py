@@ -220,6 +220,60 @@ class TorchCG:
         return self.handle(lambda v: op.matvec(w, v), op.diag(w))
 
 
+class AMGHandle:
+    """`SolveHandle` backed by CG preconditioned by an algebraic multigrid hierarchy (pyamg), kept for reuse."""
+
+    def __init__(self, K: sp.spmatrix, hierarchy, tol: float, max_iter: int) -> None:  # noqa: ANN001
+        self.K, self.ml, self.tol, self.max_iter = K, hierarchy, tol, max_iter
+        self.iterations: list[int] = []  # CG iterations of every solve, for monitoring
+
+    def _solve1(self, b: np.ndarray) -> np.ndarray:
+        if not np.any(b):
+            return np.zeros_like(b)
+        res: list[float] = []
+        y = self.ml.solve(b, tol=self.tol, accel="cg", maxiter=self.max_iter, residuals=res)
+        self.iterations.append(len(res) - 1)
+        rel = np.linalg.norm(self.K @ y - b) / np.linalg.norm(b)
+        if not rel <= 10.0 * self.tol:  # also catches NaN
+            raise SolverConvergenceError(f"AMG-CG: residual {rel:.2e} > tol {self.tol:.0e} after {len(res) - 1} iterations")
+        return y
+
+    def solve(self, b: torch.Tensor) -> torch.Tensor:
+        b_np = b.detach().cpu().numpy().astype(np.float64)
+        y = self._solve1(b_np) if b_np.ndim == 1 else np.stack([self._solve1(c) for c in b_np.T], axis=1)
+        return torch.from_numpy(y).to(dtype=b.dtype, device=b.device)
+
+
+class AMGCG:
+    """CG + smoothed-aggregation AMG (pyamg, optional dependency) for 3D elasticity too large for `ScipyDirect`.
+
+    The near-null space given to the aggregation is the set of rigid-body modes (zeroed on the fixed dofs), the
+    standard choice for elasticity (Vanek, Mandel & Brezina 1996). Setup ~ one assembly; a connected design takes
+    ~20 CG iterations, but every island of solid floating in near-void adds near-zero eigenvalues (6 per island)
+    and the count can grow to hundreds: AMG is not robust to the 1e6 stiffness contrast of SIMP.
+    """
+
+    def __init__(self, tol: float = 1e-8, max_iter: int = 2000) -> None:
+        self.tol, self.max_iter = tol, max_iter
+        self.last: AMGHandle | None = None
+
+    def prepare(self, op: StructuredFEOperator, w: torch.Tensor) -> SolveHandle:
+        import pyamg
+
+        from aeroptimizer.fem.bc import rigid_modes
+
+        K = op.assemble_csr(w)
+        B = rigid_modes(op.grid).numpy() if op.ncomp == op.grid.d else np.ones((op.n_dofs, 1))
+        B[~op.free_mask.cpu().numpy()] = 0.0
+        smoother = ("gauss_seidel", {"sweep": "symmetric"})  # symmetric: the V-cycle stays an SPD preconditioner
+        ml = pyamg.smoothed_aggregation_solver(
+            K, B=B, symmetry="symmetric", strength=("symmetric", {"theta": 0.0}), max_coarse=1000,
+            presmoother=smoother, postsmoother=smoother, coarse_solver="splu",  # default pinv: an SVD per cycle
+        )
+        self.last = AMGHandle(K, ml, self.tol, self.max_iter)  # kept to monitor the CG iterations
+        return self.last
+
+
 def check_device_dtype(device: torch.device | str, dtype: torch.dtype) -> None:
     """C-SOLVE-09: float64 on MPS is refused with DeviceError."""
     from aeroptimizer.errors import DeviceError

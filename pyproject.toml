@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 vtk = ["pyvista>=0.43", "meshio>=5.3"]
 mma = ["nlopt>=2.7"]
+amg = ["pyamg>=5.0"]  # fem.solvers.AMGCG (3D frame)
 dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.10"]
 
 [tool.setuptools.packages.find]
