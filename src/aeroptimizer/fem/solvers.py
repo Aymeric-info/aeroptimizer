@@ -223,18 +223,25 @@ class TorchCG:
 class AMGHandle:
     """`SolveHandle` backed by CG preconditioned by an algebraic multigrid hierarchy (pyamg), kept for reuse."""
 
-    def __init__(self, K: sp.spmatrix, hierarchy, tol: float, max_iter: int) -> None:  # noqa: ANN001
-        self.K, self.ml, self.tol, self.max_iter = K, hierarchy, tol, max_iter
+    def __init__(self, K: sp.spmatrix, hierarchy, tol: float, max_iter: int, fallback: bool = False) -> None:  # noqa: ANN001
+        self.K, self.ml, self.tol, self.max_iter, self.fallback = K, hierarchy, tol, max_iter, fallback
         self.iterations: list[int] = []  # CG iterations of every solve, for monitoring
+        self.direct: DirectHandle | None = None  # built on the first failure when `fallback`
 
     def _solve1(self, b: np.ndarray) -> np.ndarray:
         if not np.any(b):
             return np.zeros_like(b)
+        if self.direct is not None:  # this matrix already defeated the AMG-CG on an earlier right-hand side
+            return self.direct.solve(torch.from_numpy(b)).numpy()
         res: list[float] = []
         y = self.ml.solve(b, tol=self.tol, accel="cg", maxiter=self.max_iter, residuals=res)
         self.iterations.append(len(res) - 1)
         rel = np.linalg.norm(self.K @ y - b) / np.linalg.norm(b)
         if not rel <= 10.0 * self.tol:  # also catches NaN
+            if self.fallback:  # near-singular design (a part cut off): the factorisation still copes
+                self.direct = self.direct or DirectHandle(self.K)
+                self.iterations.append(-1)
+                return self.direct.solve(torch.from_numpy(b)).numpy()
             raise SolverConvergenceError(f"AMG-CG: residual {rel:.2e} > tol {self.tol:.0e} after {len(res) - 1} iterations")
         return y
 
@@ -248,13 +255,14 @@ class AMGCG:
     """CG + smoothed-aggregation AMG (pyamg, optional dependency) for 3D elasticity too large for `ScipyDirect`.
 
     The near-null space given to the aggregation is the set of rigid-body modes (zeroed on the fixed dofs), the
-    standard choice for elasticity (Vanek, Mandel & Brezina 1996). Setup ~ one assembly; a connected design takes
+    standard choice for elasticity (Vanek, Mandel & Brezina 1996). `fallback=True` re-solves with a direct
+    factorisation (slow, 3D) when the AMG-CG fails, instead of raising. Setup ~ one assembly; a connected design takes
     ~20 CG iterations, but every island of solid floating in near-void adds near-zero eigenvalues (6 per island)
     and the count can grow to hundreds: AMG is not robust to the 1e6 stiffness contrast of SIMP.
     """
 
-    def __init__(self, tol: float = 1e-8, max_iter: int = 2000) -> None:
-        self.tol, self.max_iter = tol, max_iter
+    def __init__(self, tol: float = 1e-8, max_iter: int = 2000, fallback: bool = False) -> None:
+        self.tol, self.max_iter, self.fallback = tol, max_iter, fallback
         self.last: AMGHandle | None = None
 
     def prepare(self, op: StructuredFEOperator, w: torch.Tensor) -> SolveHandle:
@@ -270,7 +278,7 @@ class AMGCG:
             K, B=B, symmetry="symmetric", strength=("symmetric", {"theta": 0.0}), max_coarse=1000,
             presmoother=smoother, postsmoother=smoother, coarse_solver="splu",  # default pinv: an SVD per cycle
         )
-        self.last = AMGHandle(K, ml, self.tol, self.max_iter)  # kept to monitor the CG iterations
+        self.last = AMGHandle(K, ml, self.tol, self.max_iter, self.fallback)  # kept to monitor the CG iterations
         return self.last
 
 
